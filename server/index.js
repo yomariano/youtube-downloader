@@ -1,12 +1,10 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import ytdl from '@distube/ytdl-core';
-import { ProxyAgent } from 'undici';
+import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import ffmpeg from 'fluent-ffmpeg';
 
 dotenv.config();
 
@@ -26,22 +24,20 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
 
-// Configure BrightData proxy (optional) - TEMPORARILY DISABLED FOR TESTING
-let agent = null;
-// if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
-//   const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-//   agent = new ProxyAgent(proxyUrl);
-//   console.log('Using BrightData proxy');
-// } else {
-  console.log('No proxy configured, using direct connection');
-// }
+// Configure proxy if available
+const getProxyUrl = () => {
+  if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
+    return `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+  }
+  return null;
+};
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    proxy: agent ? 'enabled' : 'disabled'
+    proxy: getProxyUrl() ? 'enabled' : 'disabled'
   });
 });
 
@@ -61,49 +57,62 @@ app.post('/api/video-info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const options = agent ? { agent } : {};
-    console.log('Using options:', agent ? 'with proxy' : 'without proxy');
+    const options = {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true,
+      preferFreeFormats: true
+    };
 
-    const info = await ytdl.getInfo(url, options);
-    const formats = info.formats;
+    // Add proxy if configured
+    const proxyUrl = getProxyUrl();
+    if (proxyUrl) {
+      options.proxy = proxyUrl;
+      console.log('Using proxy for yt-dlp');
+    } else {
+      console.log('No proxy configured');
+    }
 
-    console.log('Successfully fetched video info:', info.videoDetails.title);
+    const info = await youtubedl(url, options);
 
-    // Filter video formats
-    const videoFormats = formats
-      .filter(f => f.hasVideo && f.hasAudio)
+    console.log('Successfully fetched video info:', info.title);
+
+    // Format video formats for frontend
+    const videoFormats = info.formats
+      ?.filter(f => f.vcodec !== 'none' && f.acodec !== 'none')
       .map(f => ({
-        quality: f.qualityLabel || f.quality,
-        format: f.container,
-        itag: f.itag,
-        hasAudio: f.hasAudio,
-        hasVideo: f.hasVideo
+        quality: f.format_note || f.resolution || 'unknown',
+        format: f.ext,
+        itag: f.format_id,
+        hasAudio: f.acodec !== 'none',
+        hasVideo: f.vcodec !== 'none'
       }))
       .filter((v, i, a) => a.findIndex(t => t.quality === v.quality) === i)
       .sort((a, b) => {
         const aRes = parseInt(a.quality) || 0;
         const bRes = parseInt(b.quality) || 0;
         return bRes - aRes;
-      });
+      }) || [];
 
-    // Filter audio-only formats
-    const audioFormats = formats
-      .filter(f => f.hasAudio && !f.hasVideo)
+    // Format audio formats for frontend
+    const audioFormats = info.formats
+      ?.filter(f => f.acodec !== 'none' && f.vcodec === 'none')
       .map(f => ({
-        quality: f.audioBitrate ? `${f.audioBitrate}kbps` : 'unknown',
-        itag: f.itag,
-        audioBitrate: f.audioBitrate || 0
+        quality: f.abr ? `${f.abr}kbps` : 'unknown',
+        itag: f.format_id,
+        audioBitrate: f.abr || 0
       }))
       .sort((a, b) => b.audioBitrate - a.audioBitrate)
-      .slice(0, 5);
+      .slice(0, 5) || [];
 
     res.json({
-      title: info.videoDetails.title,
-      duration: info.videoDetails.lengthSeconds,
-      thumbnail: info.videoDetails.thumbnails[0]?.url,
+      title: info.title,
+      duration: info.duration,
+      thumbnail: info.thumbnail,
       videoFormats,
       audioFormats
     });
+
   } catch (error) {
     console.error('Error fetching video info:', error.message);
     console.error('Error stack:', error.stack);
@@ -126,56 +135,62 @@ app.post('/api/download', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const options = agent ? { agent } : {};
-    const info = await ytdl.getInfo(url, options);
-    const title = info.videoDetails.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+    const info = await youtubedl(url, {
+      dumpSingleJson: true,
+      noCheckCertificates: true,
+      noWarnings: true
+    });
 
+    const title = info.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
     console.log('Downloading:', title);
 
     let filename;
     let filePath;
 
+    const options = {
+      noCheckCertificates: true,
+      noWarnings: true,
+      output: path.join(downloadsDir, '%(title)s.%(ext)s')
+    };
+
+    // Add proxy if configured
+    const proxyUrl = getProxyUrl();
+    if (proxyUrl) {
+      options.proxy = proxyUrl;
+    }
+
     if (outputFormat === 'mp3') {
-      // Download audio and convert to MP3
+      // Download and extract audio
       filename = `${title}.mp3`;
       filePath = path.join(downloadsDir, filename);
 
-      const audioOptions = {
-        quality: 'highestaudio',
-        filter: 'audioonly',
-        ...(agent && { agent })
-      };
-
-      const audioStream = ytdl(url, audioOptions);
-
-      await new Promise((resolve, reject) => {
-        ffmpeg(audioStream)
-          .audioBitrate(quality || 128)
-          .toFormat('mp3')
-          .on('end', resolve)
-          .on('error', reject)
-          .save(filePath);
-      });
+      options.extractAudio = true;
+      options.audioFormat = 'mp3';
+      options.audioQuality = quality || '192';
+      options.output = filePath;
 
     } else {
-      // Download video (MP4)
+      // Download video
       filename = `${title}.mp4`;
       filePath = path.join(downloadsDir, filename);
 
-      const videoStream = ytdl(url, {
-        quality: quality || 'highest',
-        filter: format === 'videoonly' ? 'videoonly' : 'videoandaudio',
-        ...(agent && { agent })
-      });
+      if (quality) {
+        options.format = `best[height<=${quality}]/best`;
+      } else {
+        options.format = 'best';
+      }
+      options.mergeOutputFormat = 'mp4';
+      options.output = filePath;
+    }
 
-      const writeStream = fs.createWriteStream(filePath);
+    console.log('Downloading with options:', options);
 
-      await new Promise((resolve, reject) => {
-        videoStream.pipe(writeStream);
-        videoStream.on('end', resolve);
-        videoStream.on('error', reject);
-        writeStream.on('error', reject);
-      });
+    // Execute download
+    await youtubedl(url, options);
+
+    // Check if file exists
+    if (!fs.existsSync(filePath)) {
+      throw new Error('Download completed but file not found');
     }
 
     // Send file
