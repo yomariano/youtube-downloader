@@ -142,22 +142,20 @@ app.post('/api/download', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const info = await youtubedl(url, {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true
-    });
-
-    const title = info.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
-    console.log('Downloading:', title);
+    // Generate safe filename
+    const safeTitle = url.split('v=')[1] || 'video';
+    console.log('Downloading video ID:', safeTitle);
 
     let filename;
     let filePath;
 
+    // Simplified options for yt-dlp
     const options = {
       noCheckCertificates: true,
       noWarnings: true,
-      output: path.join(downloadsDir, '%(title)s.%(ext)s')
+      quiet: false, // Show progress
+      noPart: true, // Don't use .part files
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
 
     // Add proxy if configured
@@ -168,32 +166,47 @@ app.post('/api/download', async (req, res) => {
 
     if (outputFormat === 'mp3') {
       // Download and extract audio
-      filename = `${title}.mp3`;
+      filename = `${safeTitle}.mp3`;
       filePath = path.join(downloadsDir, filename);
 
       options.extractAudio = true;
       options.audioFormat = 'mp3';
       options.audioQuality = quality || '192';
       options.output = filePath;
+      options.format = 'bestaudio/best';
 
     } else {
       // Download video
-      filename = `${title}.mp4`;
+      filename = `${safeTitle}.mp4`;
       filePath = path.join(downloadsDir, filename);
 
       if (quality) {
-        options.format = `best[height<=${quality}]/best`;
+        // Use specific quality
+        const heightMap = {
+          '1080p': '1080',
+          '720p': '720',
+          '480p': '480',
+          '360p': '360'
+        };
+        const height = heightMap[quality] || quality;
+        options.format = `best[height<=${height}][ext=mp4]/best[height<=${height}]/best[ext=mp4]/best`;
       } else {
-        options.format = 'best';
+        options.format = 'best[ext=mp4]/best';
       }
-      options.mergeOutputFormat = 'mp4';
       options.output = filePath;
     }
 
-    console.log('Downloading with options:', options);
+    console.log('Downloading to:', filePath);
+    console.log('Options:', JSON.stringify(options, null, 2));
 
-    // Execute download
-    await youtubedl(url, options);
+    try {
+      // Execute download
+      await youtubedl(url, options);
+      console.log('Download completed successfully');
+    } catch (dlError) {
+      console.error('yt-dlp error:', dlError.message);
+      throw dlError;
+    }
 
     // Check if file exists
     if (!fs.existsSync(filePath)) {
