@@ -18,13 +18,21 @@ const PROXY_PROVIDERS = {
         return null;
       }
 
+      // Debug: Log actual values being used
+      console.log('BrightData config:', {
+        username: baseUsername,
+        host,
+        port,
+        zone: baseUsername.includes('scraping_browser') ? 'scraping_browser' : 'residential'
+      });
+
       // For scraping_browser zone, use without session modification
       const username = baseUsername.includes('scraping_browser')
         ? baseUsername
         : (sessionId ? `${baseUsername}-session-${sessionId}` : baseUsername);
 
       const proxyUrl = `http://${username}:${password}@${host}:${port}`;
-      console.log('BrightData proxy configured for:', host + ':' + port);
+      console.log('BrightData proxy URL:', proxyUrl.replace(password, '***'));
       return proxyUrl;
     },
     type: 'residential',
