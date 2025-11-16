@@ -3,7 +3,6 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import ytdl from '@distube/ytdl-core';
 import { ProxyAgent } from 'undici';
-import { CookieJar } from 'tough-cookie';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,9 +25,6 @@ const downloadsDir = path.join(__dirname, 'downloads');
 if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
-
-// Create cookie jar for ytdl-core
-const cookieJar = new CookieJar();
 
 // Configure BrightData proxy (optional)
 let agent = null;
@@ -65,12 +61,7 @@ app.post('/api/video-info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const options = {
-      requestOptions: {
-        jar: cookieJar
-      },
-      ...(agent && { agent })
-    };
+    const options = agent ? { agent } : {};
     console.log('Using options:', agent ? 'with proxy' : 'without proxy');
 
     const info = await ytdl.getInfo(url, options);
@@ -135,12 +126,7 @@ app.post('/api/download', async (req, res) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const options = {
-      requestOptions: {
-        jar: cookieJar
-      },
-      ...(agent && { agent })
-    };
+    const options = agent ? { agent } : {};
     const info = await ytdl.getInfo(url, options);
     const title = info.videoDetails.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
 
@@ -157,9 +143,6 @@ app.post('/api/download', async (req, res) => {
       const audioOptions = {
         quality: 'highestaudio',
         filter: 'audioonly',
-        requestOptions: {
-          jar: cookieJar
-        },
         ...(agent && { agent })
       };
 
@@ -182,9 +165,6 @@ app.post('/api/download', async (req, res) => {
       const videoStream = ytdl(url, {
         quality: quality || 'highest',
         filter: format === 'videoonly' ? 'videoonly' : 'videoandaudio',
-        requestOptions: {
-          jar: cookieJar
-        },
         ...(agent && { agent })
       });
 
