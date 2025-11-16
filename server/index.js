@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import ytdl from '@distube/ytdl-core';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { ProxyAgent } from 'undici';
 import { CookieJar } from 'tough-cookie';
 import fs from 'fs';
 import path from 'path';
@@ -34,7 +34,7 @@ const cookieJar = new CookieJar();
 let agent = null;
 if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
   const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-  agent = new HttpsProxyAgent(proxyUrl);
+  agent = new ProxyAgent(proxyUrl);
   console.log('Using BrightData proxy');
 } else {
   console.log('No proxy configured, using direct connection');
@@ -67,9 +67,9 @@ app.post('/api/video-info', async (req, res) => {
 
     const options = {
       requestOptions: {
-        jar: cookieJar,
-        ...(agent && { agent })
-      }
+        jar: cookieJar
+      },
+      ...(agent && { agent })
     };
     console.log('Using options:', agent ? 'with proxy' : 'without proxy');
 
@@ -137,9 +137,9 @@ app.post('/api/download', async (req, res) => {
 
     const options = {
       requestOptions: {
-        jar: cookieJar,
-        ...(agent && { agent })
-      }
+        jar: cookieJar
+      },
+      ...(agent && { agent })
     };
     const info = await ytdl.getInfo(url, options);
     const title = info.videoDetails.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
@@ -158,9 +158,9 @@ app.post('/api/download', async (req, res) => {
         quality: 'highestaudio',
         filter: 'audioonly',
         requestOptions: {
-          jar: cookieJar,
-          ...(agent && { agent })
-        }
+          jar: cookieJar
+        },
+        ...(agent && { agent })
       };
 
       const audioStream = ytdl(url, audioOptions);
@@ -183,9 +183,9 @@ app.post('/api/download', async (req, res) => {
         quality: quality || 'highest',
         filter: format === 'videoonly' ? 'videoonly' : 'videoandaudio',
         requestOptions: {
-          jar: cookieJar,
-          ...(agent && { agent })
-        }
+          jar: cookieJar
+        },
+        ...(agent && { agent })
       });
 
       const writeStream = fs.createWriteStream(filePath);
