@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PROXY_HOST=${PROXY_HOST:-brd.superproxy.io}
+      - PROXY_PASSWORD=${PROXY_PASSWORD:-713k00vtlyvt}
+      - PROXY_PORT=${PROXY_PORT:-9222}
+      - PROXY_USERNAME=${PROXY_USERNAME:-brd-customer-hl_356602a2-zone-scraping_browser1}
+      - PORT=3001
+    volumes:
+      - ./server/downloads:/app/downloads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3001/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    ports:
+      - "80:80"
+    depends_on:
+      - server
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  downloads:
