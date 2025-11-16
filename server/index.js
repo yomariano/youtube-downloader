@@ -26,15 +26,15 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
 
-// Configure BrightData proxy (optional)
+// Configure BrightData proxy (optional) - TEMPORARILY DISABLED FOR TESTING
 let agent = null;
-if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
-  const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-  agent = new ProxyAgent(proxyUrl);
-  console.log('Using BrightData proxy');
-} else {
+// if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
+//   const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+//   agent = new ProxyAgent(proxyUrl);
+//   console.log('Using BrightData proxy');
+// } else {
   console.log('No proxy configured, using direct connection');
-}
+// }
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
