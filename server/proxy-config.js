@@ -5,12 +5,27 @@ dotenv.config();
 // Proxy provider configurations
 const PROXY_PROVIDERS = {
   brightdata: {
-    enabled: !!process.env.BRIGHTDATA_USERNAME,
+    enabled: !!process.env.PROXY_USERNAME || !!process.env.BRIGHTDATA_USERNAME,
     buildUrl: (sessionId) => {
-      const username = sessionId
-        ? `${process.env.BRIGHTDATA_USERNAME}-session-${sessionId}`
-        : process.env.BRIGHTDATA_USERNAME;
-      return `http://${username}:${process.env.BRIGHTDATA_PASSWORD}@${process.env.BRIGHTDATA_HOST}:${process.env.BRIGHTDATA_PORT}`;
+      // Support both old and new env variable names
+      const baseUsername = process.env.PROXY_USERNAME || process.env.BRIGHTDATA_USERNAME;
+      const password = process.env.PROXY_PASSWORD || process.env.BRIGHTDATA_PASSWORD;
+      const host = process.env.PROXY_HOST || process.env.BRIGHTDATA_HOST;
+      const port = process.env.PROXY_PORT || process.env.BRIGHTDATA_PORT;
+
+      if (!baseUsername || !password || !host || !port) {
+        console.log('BrightData proxy not fully configured');
+        return null;
+      }
+
+      // For scraping_browser zone, use without session modification
+      const username = baseUsername.includes('scraping_browser')
+        ? baseUsername
+        : (sessionId ? `${baseUsername}-session-${sessionId}` : baseUsername);
+
+      const proxyUrl = `http://${username}:${password}@${host}:${port}`;
+      console.log('BrightData proxy configured for:', host + ':' + port);
+      return proxyUrl;
     },
     type: 'residential',
     priority: 1
@@ -48,9 +63,16 @@ const PROXY_PROVIDERS = {
 
 // Get active proxy providers sorted by priority
 const getActiveProviders = () => {
-  return Object.entries(PROXY_PROVIDERS)
-    .filter(([_, config]) => config.enabled)
+  const providers = Object.entries(PROXY_PROVIDERS)
+    .filter(([name, config]) => {
+      const isEnabled = config.enabled;
+      console.log(`Provider ${name}: ${isEnabled ? 'enabled' : 'disabled'}`);
+      return isEnabled;
+    })
     .sort((a, b) => a[1].priority - b[1].priority);
+
+  console.log(`Active providers: ${providers.map(p => p[0]).join(', ') || 'none'}`);
+  return providers;
 };
 
 // Generate session ID for IP rotation
@@ -81,6 +103,11 @@ export const getProxyWithFallback = async (attempt = 0) => {
   // Generate new session ID for each attempt (IP rotation)
   const sessionId = generateSessionId();
   const proxyUrl = config.buildUrl(sessionId);
+
+  if (!proxyUrl) {
+    console.log(`Failed to build proxy URL for ${providerName}`);
+    return null;
+  }
 
   return {
     url: proxyUrl,

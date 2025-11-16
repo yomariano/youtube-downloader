@@ -25,28 +25,16 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
 
-// Configure BrightData proxy with session rotation
-const getProxyUrl = (sessionId = null) => {
-  if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
-    // Add session ID for rotating IPs
-    const username = sessionId
-      ? `${process.env.PROXY_USERNAME}-session-${sessionId}`
-      : process.env.PROXY_USERNAME;
-
-    // BrightData format with authentication
-    const proxyUrl = `http://${username}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-
-    return proxyUrl;
-  }
-  return null;
-};
+// Note: Proxy configuration is now handled by proxy-config.js
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  const proxyStatus = (process.env.PROXY_USERNAME || process.env.BRIGHTDATA_USERNAME) ? 'enabled' : 'disabled';
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    proxy: getProxyUrl() ? 'enabled' : 'disabled'
+    proxy: proxyStatus,
+    proxyHost: process.env.PROXY_HOST || process.env.BRIGHTDATA_HOST || 'none'
   });
 });
 
@@ -161,11 +149,7 @@ app.post('/api/download', async (req, res) => {
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     };
 
-    // Add proxy if configured
-    const proxyUrl = getProxyUrl();
-    if (proxyUrl) {
-      options.proxy = proxyUrl;
-    }
+    // Proxy will be handled by downloadWithRetry
 
     if (outputFormat === 'mp3') {
       // Download and extract audio
