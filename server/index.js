@@ -66,9 +66,9 @@ app.post('/api/video-info', async (req, res) => {
     }
 
     const options = {
-      ...(agent && { agent }),
       requestOptions: {
-        jar: cookieJar
+        jar: cookieJar,
+        ...(agent && { agent })
       }
     };
     console.log('Using options:', agent ? 'with proxy' : 'without proxy');
@@ -136,9 +136,9 @@ app.post('/api/download', async (req, res) => {
     }
 
     const options = {
-      ...(agent && { agent }),
       requestOptions: {
-        jar: cookieJar
+        jar: cookieJar,
+        ...(agent && { agent })
       }
     };
     const info = await ytdl.getInfo(url, options);
@@ -157,9 +157,9 @@ app.post('/api/download', async (req, res) => {
       const audioOptions = {
         quality: 'highestaudio',
         filter: 'audioonly',
-        ...(agent && { agent }),
         requestOptions: {
-          jar: cookieJar
+          jar: cookieJar,
+          ...(agent && { agent })
         }
       };
 
@@ -182,9 +182,9 @@ app.post('/api/download', async (req, res) => {
       const videoStream = ytdl(url, {
         quality: quality || 'highest',
         filter: format === 'videoonly' ? 'videoonly' : 'videoandaudio',
-        ...(agent && { agent }),
         requestOptions: {
-          jar: cookieJar
+          jar: cookieJar,
+          ...(agent && { agent })
         }
       });
 
