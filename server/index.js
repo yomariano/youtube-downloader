@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import ytdl from '@distube/ytdl-core';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { CookieJar } from 'tough-cookie';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -26,13 +27,26 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
 
-// Configure BrightData proxy
-const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-const agent = new HttpsProxyAgent(proxyUrl);
+// Create cookie jar for ytdl-core
+const cookieJar = new CookieJar();
+
+// Configure BrightData proxy (optional)
+let agent = null;
+if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
+  const proxyUrl = `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+  agent = new HttpsProxyAgent(proxyUrl);
+  console.log('Using BrightData proxy');
+} else {
+  console.log('No proxy configured, using direct connection');
+}
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    proxy: agent ? 'enabled' : 'disabled'
+  });
 });
 
 // Get video info endpoint
@@ -40,12 +54,29 @@ app.post('/api/video-info', async (req, res) => {
   try {
     const { url } = req.body;
 
+    console.log('Fetching video info for:', url);
+
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const info = await ytdl.getInfo(url, { agent });
+    // Validate YouTube URL
+    if (!url.includes('youtube.com') && !url.includes('youtu.be')) {
+      return res.status(400).json({ error: 'Invalid YouTube URL' });
+    }
+
+    const options = {
+      ...(agent && { agent }),
+      requestOptions: {
+        jar: cookieJar
+      }
+    };
+    console.log('Using options:', agent ? 'with proxy' : 'without proxy');
+
+    const info = await ytdl.getInfo(url, options);
     const formats = info.formats;
+
+    console.log('Successfully fetched video info:', info.videoDetails.title);
 
     // Filter video formats
     const videoFormats = formats
@@ -83,8 +114,13 @@ app.post('/api/video-info', async (req, res) => {
       audioFormats
     });
   } catch (error) {
-    console.error('Error fetching video info:', error);
-    res.status(500).json({ error: 'Failed to fetch video information' });
+    console.error('Error fetching video info:', error.message);
+    console.error('Error stack:', error.stack);
+    res.status(500).json({
+      error: 'Failed to fetch video information',
+      details: error.message,
+      suggestion: 'Please check if the URL is valid and accessible'
+    });
   }
 });
 
@@ -93,12 +129,22 @@ app.post('/api/download', async (req, res) => {
   try {
     const { url, format, quality, outputFormat } = req.body;
 
+    console.log('Download request:', { url, format, quality, outputFormat });
+
     if (!url) {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const info = await ytdl.getInfo(url, { agent });
+    const options = {
+      ...(agent && { agent }),
+      requestOptions: {
+        jar: cookieJar
+      }
+    };
+    const info = await ytdl.getInfo(url, options);
     const title = info.videoDetails.title.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
+
+    console.log('Downloading:', title);
 
     let filename;
     let filePath;
@@ -108,11 +154,16 @@ app.post('/api/download', async (req, res) => {
       filename = `${title}.mp3`;
       filePath = path.join(downloadsDir, filename);
 
-      const audioStream = ytdl(url, {
+      const audioOptions = {
         quality: 'highestaudio',
         filter: 'audioonly',
-        agent
-      });
+        ...(agent && { agent }),
+        requestOptions: {
+          jar: cookieJar
+        }
+      };
+
+      const audioStream = ytdl(url, audioOptions);
 
       await new Promise((resolve, reject) => {
         ffmpeg(audioStream)
@@ -131,7 +182,10 @@ app.post('/api/download', async (req, res) => {
       const videoStream = ytdl(url, {
         quality: quality || 'highest',
         filter: format === 'videoonly' ? 'videoonly' : 'videoandaudio',
-        agent
+        ...(agent && { agent }),
+        requestOptions: {
+          jar: cookieJar
+        }
       });
 
       const writeStream = fs.createWriteStream(filePath);
