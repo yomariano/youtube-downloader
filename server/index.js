@@ -5,6 +5,7 @@ import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { downloadWithRetry } from './proxy-config.js';
 
 dotenv.config();
 
@@ -24,15 +25,20 @@ if (!fs.existsSync(downloadsDir)) {
   fs.mkdirSync(downloadsDir);
 }
 
-// Configure proxy if available
-const getProxyUrl = () => {
-  // TEMPORARILY DISABLED - Testing without proxy first
-  return null;
+// Configure BrightData proxy with session rotation
+const getProxyUrl = (sessionId = null) => {
+  if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
+    // Add session ID for rotating IPs
+    const username = sessionId
+      ? `${process.env.PROXY_USERNAME}-session-${sessionId}`
+      : process.env.PROXY_USERNAME;
 
-  // if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
-  //   return `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-  // }
-  // return null;
+    // BrightData format with authentication
+    const proxyUrl = `http://${username}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+
+    return proxyUrl;
+  }
+  return null;
 };
 
 // Health check endpoint
@@ -60,27 +66,24 @@ app.post('/api/video-info', async (req, res) => {
       return res.status(400).json({ error: 'Invalid YouTube URL' });
     }
 
-    const options = {
-      dumpSingleJson: true,
-      noCheckCertificates: true,
-      noWarnings: true,
-      preferFreeFormats: true,
-      // Add user agent to bypass bot detection
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      // Add additional options for better success
-      addHeader: ['Accept-Language:en-US,en;q=0.9', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8']
-    };
+    // Use retry logic with proxy rotation
+    const info = await downloadWithRetry(async (proxyUrl) => {
+      const options = {
+        dumpSingleJson: true,
+        noCheckCertificates: true,
+        noWarnings: true,
+        preferFreeFormats: true,
+        userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        addHeader: ['Accept-Language:en-US,en;q=0.9', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8']
+      };
 
-    // Add proxy if configured
-    const proxyUrl = getProxyUrl();
-    if (proxyUrl) {
-      options.proxy = proxyUrl;
-      console.log('Using proxy for yt-dlp');
-    } else {
-      console.log('No proxy configured - direct connection');
-    }
+      if (proxyUrl) {
+        options.proxy = proxyUrl;
+        console.log('Using proxy:', proxyUrl.split('@')[1]); // Hide credentials in logs
+      }
 
-    const info = await youtubedl(url, options);
+      return await youtubedl(url, options);
+    }, 3); // Try up to 3 times with different proxies
 
     console.log('Successfully fetched video info:', info.title);
 
