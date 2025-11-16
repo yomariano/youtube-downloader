@@ -26,10 +26,13 @@ if (!fs.existsSync(downloadsDir)) {
 
 // Configure proxy if available
 const getProxyUrl = () => {
-  if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
-    return `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
-  }
+  // TEMPORARILY DISABLED - Testing without proxy first
   return null;
+
+  // if (process.env.PROXY_USERNAME && process.env.PROXY_HOST) {
+  //   return `http://${process.env.PROXY_USERNAME}:${process.env.PROXY_PASSWORD}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+  // }
+  // return null;
 };
 
 // Health check endpoint
@@ -61,7 +64,11 @@ app.post('/api/video-info', async (req, res) => {
       dumpSingleJson: true,
       noCheckCertificates: true,
       noWarnings: true,
-      preferFreeFormats: true
+      preferFreeFormats: true,
+      // Add user agent to bypass bot detection
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      // Add additional options for better success
+      addHeader: ['Accept-Language:en-US,en;q=0.9', 'Accept:text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8']
     };
 
     // Add proxy if configured
@@ -70,7 +77,7 @@ app.post('/api/video-info', async (req, res) => {
       options.proxy = proxyUrl;
       console.log('Using proxy for yt-dlp');
     } else {
-      console.log('No proxy configured');
+      console.log('No proxy configured - direct connection');
     }
 
     const info = await youtubedl(url, options);
